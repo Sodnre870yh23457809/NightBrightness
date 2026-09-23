@@ -1,0 +1,20 @@
+# Build and editor output
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.pdb
+
+# Local runtime state
+settings.json
+status.json
+activity.log
+original-colors.json
+original-theme.json
+theme-status.json
+probe.json
+self-test.txt
+*.request
+*.tmp
+backup*/
