@@ -16,8 +16,12 @@ to the saved schedule (or the prior brightness when paused).
 Preferences includes Windows theme and desktop background switching, plus
 automatic sign-in startup.
 Closing the window hides it to the tray. Launching the app again reopens the
-same window, without starting another scheduler. Startup uses `--background`
-so it does not open the window at sign-in.
+same window, without starting another scheduler. A per-user Windows logon task
+starts the app without a delay at higher scheduling priority. The usual Windows
+startup entry remains as a fallback. Both use `--background`, so no window opens
+at sign-in; the app's single-instance guard prevents two schedulers. Windows
+determines the exact order of sign-in programs, so the app cannot run before
+you sign in or guarantee it is the first program launched.
 
 The saved configuration is in `settings.json`. The original schedule is:
 
@@ -125,7 +129,7 @@ color settings. `--wallpaper-probe` only checks the Windows desktop wallpaper
 interface. `--verify-driver` applies 55% to both monitors for a live check.
 
 To uninstall, run `Uninstall.ps1` with PowerShell. It restores 55%, exits the app,
-and removes its startup entry and shortcuts. Files/backups remain available.
+and removes its logon task, startup entry, and shortcuts. Files/backups remain available.
 
 ## Driver interface and license
 

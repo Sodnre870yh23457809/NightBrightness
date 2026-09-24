@@ -12,6 +12,10 @@ if ($running.Count) {
     if ($check.ExitCode -ne 0) { throw 'Brightness restore failed. See activity.log.' }
 }
 Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'NightBrightness' -ErrorAction SilentlyContinue
+$taskService = New-Object -ComObject 'Schedule.Service'
+$taskService.Connect()
+try { $taskService.GetFolder('\').DeleteTask('NightBrightness', 0) }
+catch { if ($_.Exception.HResult -ne -2147024894) { throw } }
 $desktopPath = [Environment]::GetFolderPath('Desktop')
 foreach ($name in @('Night Brightness.lnk', 'Restore Brightness 55%.lnk', 'Restore Day Brightness.lnk')) {
     $linkPath = Join-Path $desktopPath $name

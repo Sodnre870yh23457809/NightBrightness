@@ -35,3 +35,14 @@ Previous binaries are retained in the local application's backup-ui directory.
 - The Windows UI capture helper failed to start during this update, so the
   new Preferences card was checked by XAML compilation and live window
   startup, without a captured visual inspection.
+
+## Fast sign-in startup — 2026-09-24
+
+- Release build and built-in self-test passed.
+- Installed the new binary and registered a per-user Windows logon task with no
+  trigger delay, priority 4, interactive desktop access, and battery operation.
+- Kept the existing Run entry as a fallback; the single-instance guard prevents
+  duplicate schedulers.
+- Launched the installed app through Task Scheduler. One process stayed running,
+  the saved settings remained intact, and both NVIDIA monitors were at 65%.
+- An actual sign-out/sign-in has not been performed during this validation.

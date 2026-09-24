@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Text.Json;
-using Microsoft.Win32;
 namespace NightBrightness;
 internal static class Program
 {
@@ -83,7 +82,6 @@ internal sealed class Scheduler : ApplicationContext
     public string? LocationStatus { get; private set; }
     public string? WallpaperError => wallpaper.ErrorMessage;
     public event Action? Changed;
-    const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     public Scheduler()
     {
         Config = Settings.Load();
@@ -101,6 +99,8 @@ internal sealed class Scheduler : ApplicationContext
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowQuickPanel(); };
         timer.Tick += (_, _) => Tick();
         timer.Start(); Tick();
+        try { StartupRegistration.Apply(Config.StartAtSignIn); }
+        catch (Exception e) { Program.Log("Sign-in startup: " + e); }
     }
     public void ShowWindow()
     {
@@ -124,18 +124,16 @@ internal sealed class Scheduler : ApplicationContext
     public void Save(Settings settings)
     {
         settings.Validate();
-        using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-        var oldStartup = key.GetValue("NightBrightness");
+        bool oldStartup = Config.StartAtSignIn;
         try
         {
-            if (settings.StartAtSignIn) key.SetValue("NightBrightness", "\"" + Environment.ProcessPath + "\" --background");
-            else key.DeleteValue("NightBrightness", false);
+            StartupRegistration.Apply(settings.StartAtSignIn);
             settings.Save();
         }
         catch
         {
-            if (oldStartup != null) key.SetValue("NightBrightness", oldStartup);
-            else key.DeleteValue("NightBrightness", false);
+            try { StartupRegistration.Apply(oldStartup); }
+            catch (Exception e) { Program.Log("Startup rollback: " + e); }
             throw;
         }
         Config = settings; overrideUntil = null; previewReturn = null; lastApplied = DateTime.MinValue; retryAfter = DateTime.MinValue;
