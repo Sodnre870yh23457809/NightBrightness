@@ -6,6 +6,12 @@ internal static class Tests
     public static void Run()
     {
         var s = new Settings(); s.Validate();
+        Check(!WindowsTheme.NeedsExplorerRestart(null, true, 0, 0), "No Explorer restart on startup with matching dark theme");
+        Check(!WindowsTheme.NeedsExplorerRestart(true, true, 0, 0), "No Explorer restart on same-theme settings save");
+        Check(WindowsTheme.NeedsExplorerRestart(false, true, 0, 0), "Restart on light-to-dark transition even if registry already updated");
+        Check(WindowsTheme.NeedsExplorerRestart(true, false, 1, 1), "Restart on dark-to-light transition");
+        Check(WindowsTheme.NeedsExplorerRestart(null, true, 1, 1), "Restart when startup changes Windows theme");
+        Check(WindowsTheme.NeedsExplorerRestart(null, true, 1, 0), "Restart when app theme changes independently");
         var cases = new (string time, double brightness, bool dark)[] {
             ("00:00",0,true),("04:59:59",0,true),("05:00",55,false),
             ("20:45",55,false),("20:52:30",27.5,false),("21:00",0,true),("23:59:59",0,true) };
@@ -63,9 +69,21 @@ internal static class Tests
         Check(solarWallpapers.WallpaperFor(solarTimes.Sunset.AddMinutes(1))==solarWallpapers.NightWallpaper,"Solar sunset wallpaper");
         var polar=s with { SolarEnabled=true,Latitude=69.6492,Longitude=18.9553 };
         Check(!polar.EffectiveTimes(new DateTime(2026,12,21)).Solar,"Polar fallback to fixed times");
-        Check(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(custom))==custom,"Settings persistence roundtrip");
+        Check(JsonSerializer.Serialize(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(custom)))==JsonSerializer.Serialize(custom),"Settings persistence roundtrip");
+        var individual=s with { PerMonitorBrightness=true,MonitorBrightness=new() { [10]=new(70,20),[20]=new(45,5) } };
+        individual.Validate();
+        Check(individual.Target(new DateTime(2026,9,22,12,0,0),10)==70 && individual.Target(new DateTime(2026,9,22,12,0,0),20)==45,"Distinct monitor day levels");
+        Check(individual.Target(new DateTime(2026,9,22,22,0,0),10)==20 && individual.Target(new DateTime(2026,9,22,22,0,0),20)==5,"Distinct monitor night levels");
+        Check(individual.Target(new DateTime(2026,9,22,20,52,30),10)==45 && individual.Target(new DateTime(2026,9,22,20,52,30),20)==25,"Per-monitor fade interpolation");
+        Check(individual.Target(new DateTime(2026,9,22,12,0,0),99)==55,"Unconfigured monitor uses shared fallback");
+        Check((individual with { PerMonitorBrightness=false }).Target(new DateTime(2026,9,22,12,0,0),10)==55,"Shared mode ignores retained individual profiles");
+        var loadedIndividual=JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(individual))!;
+        Check(loadedIndividual.Target(new DateTime(2026,9,22,22,0,0),20)==5,"Per-monitor settings persistence");
+        bool invalidMonitor=false;
+        try { (s with { MonitorBrightness=new() { [10]=new(30,50) } }).Validate(); } catch(ArgumentException) { invalidMonitor=true; }
+        Check(invalidMonitor,"Reject invalid per-monitor levels");
         for(int i=0;i<1024;i++) Check(Math.Abs(Nvidia.Gamma(i,100,100,100)-i/1023f)<.000001,"Gamma identity");
         Check(Math.Abs(Nvidia.Gamma(1023,80,100,100)-.8)<.00001,"NVIDIA zero mapping");
-        File.WriteAllText(Path.Combine(Program.Data,"self-test.txt"),"PASS: fixed and solar schedules, wallpaper transitions, seasons, polar fallback, cross-midnight, 901 fade samples, theme boundaries, invalid settings, JSON roundtrip, next transition and gamma mapping.");
+        File.WriteAllText(Path.Combine(Program.Data,"self-test.txt"),"PASS: fixed and solar schedules, per-monitor day/night levels and fades, shared fallback, wallpaper transitions, seasons, polar fallback, cross-midnight, 901 fade samples, theme boundaries and Explorer restart decisions, invalid settings, JSON roundtrip, next transition and gamma mapping.");
     }
 }

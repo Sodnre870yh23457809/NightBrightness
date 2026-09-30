@@ -7,6 +7,8 @@ internal sealed record Settings
 {
     public int DayBrightness { get; init; } = 55;
     public int NightBrightness { get; init; } = 0;
+    public bool PerMonitorBrightness { get; init; }
+    public Dictionary<uint, MonitorBrightness> MonitorBrightness { get; init; } = new();
     public string Morning { get; init; } = "05:00";
     public string Night { get; init; } = "21:00";
     public int FadeMinutes { get; init; } = 15;
@@ -31,6 +33,9 @@ internal sealed record Settings
         if (m == n) throw new ArgumentException("Morning and night must start at different times.");
         if (DayBrightness is < 0 or > 100 || NightBrightness < 0 || NightBrightness > DayBrightness)
             throw new ArgumentException("Night brightness must be between 0% and day brightness.");
+        if (MonitorBrightness == null || MonitorBrightness.Any(p => p.Value == null
+            || p.Value.Day is < 0 or > 100 || p.Value.Night < 0 || p.Value.Night > p.Value.Day))
+            throw new ArgumentException("Each monitor's night brightness must be between 0% and its day brightness.");
         if (FadeMinutes < 1 || FadeMinutes > 180 || FadeMinutes >= Mod((n-m).TotalMinutes))
             throw new ArgumentException("Use a fade of 1–180 minutes that fits between morning and night.");
         if (Latitude.HasValue != Longitude.HasValue ||
@@ -60,14 +65,18 @@ internal sealed record Settings
         return Mod(now.TimeOfDay.TotalMinutes - times.Morning) >= Mod(times.Night - times.Morning);
     }
     public string WallpaperFor(DateTime now) => IsDark(now) ? NightWallpaper : DayWallpaper;
-    public double Target(DateTime now)
+    public MonitorBrightness Levels(uint monitor) => PerMonitorBrightness && MonitorBrightness.TryGetValue(monitor, out var levels)
+        ? levels : new(DayBrightness, NightBrightness);
+    public double Target(DateTime now) => Target(now, new MonitorBrightness(DayBrightness, NightBrightness));
+    public double Target(DateTime now, uint monitor) => Target(now, Levels(monitor));
+    double Target(DateTime now, MonitorBrightness levels)
     {
         var times = EffectiveTimes(now.Date);
         double elapsed = Mod(now.TimeOfDay.TotalMinutes - times.Morning);
         double dayLength = Mod(times.Night - times.Morning);
-        if (elapsed >= dayLength) return NightBrightness;
-        if (elapsed <= dayLength - FadeMinutes) return DayBrightness;
-        return NightBrightness + (DayBrightness - NightBrightness) * (dayLength - elapsed) / FadeMinutes;
+        if (elapsed >= dayLength) return levels.Night;
+        if (elapsed <= dayLength - FadeMinutes) return levels.Day;
+        return levels.Night + (levels.Day - levels.Night) * (dayLength - elapsed) / FadeMinutes;
     }
     [JsonIgnore]
     public string FadeStart => Format(Mod(EffectiveTimes(DateTime.Today).Night - FadeMinutes));
@@ -111,3 +120,4 @@ internal sealed record Settings
         File.Move(path + ".tmp", path, true);
     }
 }
+internal sealed record MonitorBrightness(int Day, int Night);

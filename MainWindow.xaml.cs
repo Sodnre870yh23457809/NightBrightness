@@ -13,6 +13,7 @@ namespace NightBrightness;
 public partial class MainWindow : Window
 {
     readonly Scheduler scheduler;
+    readonly Dictionary<uint, (System.Windows.Controls.Slider Day, System.Windows.Controls.Slider Night)> monitorSliders = new();
     bool ready, loading, manualCoordinates;
     DateTime? pendingLocationUpdatedUtc;
     string pendingLocationSource="";
@@ -30,6 +31,8 @@ public partial class MainWindow : Window
         loading=true;
         var s=scheduler.Config;
         DaySlider.Value=s.DayBrightness; NightSlider.Value=s.NightBrightness;
+        MonitorBrightnessToggle.IsChecked=s.PerMonitorBrightness;
+        BuildMonitorControls(s);
         MorningBox.Text=s.Morning; NightBox.Text=s.Night; FadeBox.Text=s.FadeMinutes.ToString();
         ThemeToggle.IsChecked=s.ThemeEnabled; StartupToggle.IsChecked=s.StartAtSignIn;
         WallpaperToggle.IsChecked=s.WallpaperEnabled;
@@ -52,7 +55,10 @@ public partial class MainWindow : Window
     Settings Draft()
     {
         if(!int.TryParse(FadeBox.Text.Trim(),out int fade)) throw new ArgumentException("Enter the fade duration in whole minutes.");
+        var profiles = new Dictionary<uint, MonitorBrightness>(scheduler.Config.MonitorBrightness);
+        foreach(var row in monitorSliders) profiles[row.Key] = new((int)row.Value.Day.Value, (int)row.Value.Night.Value);
         var s=scheduler.Config with {
+            PerMonitorBrightness=MonitorBrightnessToggle.IsChecked==true, MonitorBrightness=profiles,
             DayBrightness=(int)DaySlider.Value, NightBrightness=(int)NightSlider.Value,
             Morning=MorningBox.Text.Trim(), Night=NightBox.Text.Trim(), FadeMinutes=fade,
             ThemeEnabled=ThemeToggle.IsChecked==true, StartAtSignIn=StartupToggle.IsChecked==true,
@@ -73,6 +79,7 @@ public partial class MainWindow : Window
     {
         if(!ready || loading) return;
         DayValue.Text=$"{DaySlider.Value:0}%"; NightValue.Text=$"{NightSlider.Value:0}%";
+        MonitorBrightnessPanel.Visibility=MonitorBrightnessToggle.IsChecked==true ? Visibility.Visible : Visibility.Collapsed;
         try
         {
             var s=Draft(); var times=s.EffectiveTimes(DateTime.Today);
@@ -109,13 +116,19 @@ public partial class MainWindow : Window
         double width=Timeline.ActualWidth; if(width<=0) return;
         Timeline.Children.Clear();
         Timeline.Children.Add(new Line { X1=0,X2=width,Y1=57,Y2=57,Stroke=(SolidColorBrush)new BrushConverter().ConvertFromString("#444444")!,StrokeThickness=1 });
-        var points=new PointCollection();
-        for(int m=0;m<=1440;m++)
+        var series=s.PerMonitorBrightness && scheduler.Monitors.Count>0
+            ? scheduler.Monitors.Select(m => (uint?)m.Luid).ToArray() : new uint?[] { null };
+        var colors=new[] { "#B9DAD0", "#DAC7F2", "#E6C08F" };
+        for(int index=0;index<series.Length;index++)
         {
-            double level=s.Target(DateTime.Today.AddMinutes(m));
-            points.Add(new System.Windows.Point(width*m/1440,55-level*.46));
+            var points=new PointCollection();
+            for(int m=0;m<=1440;m++)
+            {
+                double level=series[index] is uint id ? s.Target(DateTime.Today.AddMinutes(m),id) : s.Target(DateTime.Today.AddMinutes(m));
+                points.Add(new System.Windows.Point(width*m/1440,55-level*.46));
+            }
+            Timeline.Children.Add(new Polyline { Points=points,Stroke=(SolidColorBrush)new BrushConverter().ConvertFromString(colors[index%colors.Length])!,StrokeThickness=2,StrokeLineJoin=PenLineJoin.Round });
         }
-        Timeline.Children.Add(new Polyline { Points=points,Stroke=(SolidColorBrush)new BrushConverter().ConvertFromString("#B9DAD0")!,StrokeThickness=2,StrokeLineJoin=PenLineJoin.Round });
         double now=DateTime.Now.TimeOfDay.TotalMinutes;
         var marker=new Ellipse { Width=7,Height=7,Fill=WBrushes.White };
         Canvas.SetLeft(marker,width*now/1440-3.5); Canvas.SetTop(marker,55-s.Target(DateTime.Now)*.46-3.5);
@@ -124,19 +137,60 @@ public partial class MainWindow : Window
     void RefreshStatus()
     {
         if(!ready) return;
-        LiveBrightness.Text=scheduler.CurrentBrightness<0 ? "—" : $"{scheduler.CurrentBrightness:0.#}%";
+        LiveBrightness.Text=scheduler.BrightnessSummary;
+        LiveBrightness.FontSize=scheduler.BrightnessSummary.Length>6 ? 30 : 40;
         MonitorLabel.Text=$"on {scheduler.MonitorCount} monitor{(scheduler.MonitorCount==1 ? "" : "s")}";
         LiveStatus.Text=scheduler.ErrorMessage ?? scheduler.Status;
         LiveStatus.TextWrapping=TextWrapping.Wrap;
         PauseButton.Content=!scheduler.Config.Enabled || scheduler.IsOverride ? "Resume" : "Pause";
         SidebarStatus.Text=scheduler.Config.Enabled ? "●  Running in background" : "○  Schedule paused";
         var s=scheduler.Config; var times=s.EffectiveTimes(DateTime.Today);
-        NextEvent.Text=s.IsDark(DateTime.Now) ? $"{s.DayBrightness}% at {Settings.Format(times.Morning)}"+(s.ThemeEnabled ? " · light mode" : "")
-            : $"Fade at {s.FadeStart} · {s.NightBrightness}% by {Settings.Format(times.Night)}";
+        string day=s.PerMonitorBrightness ? "Day brightness" : $"{s.DayBrightness}%";
+        string night=s.PerMonitorBrightness ? "night brightness" : $"{s.NightBrightness}%";
+        NextEvent.Text=s.IsDark(DateTime.Now) ? $"{day} at {Settings.Format(times.Morning)}"+(s.ThemeEnabled ? " · light mode" : "")
+            : $"Fade at {s.FadeStart} · {night} by {Settings.Format(times.Night)}";
+        MonitorLiveValues.Text=string.Join("  ·  ", scheduler.Monitors.Select(m => $"{m.Name}: {scheduler.BrightnessFor(m.Luid):0.#}%"));
         if(scheduler.LocationStatus!=null && s.SolarEnabled) SolarStatus.Text=scheduler.LocationStatus;
         if(scheduler.WallpaperError!=null && s.WallpaperEnabled) WallpaperSummary.Text=scheduler.WallpaperError;
     }
     void Edited(object sender,RoutedPropertyChangedEventArgs<double> e)=>UpdateDraft(true);
+    void BuildMonitorControls(Settings settings)
+    {
+        monitorSliders.Clear(); MonitorBrightnessPanel.Children.Clear();
+        foreach(var monitor in scheduler.Monitors)
+        {
+            var levels=settings.MonitorBrightness.TryGetValue(monitor.Luid, out var saved) ? saved
+                : new MonitorBrightness(settings.DayBrightness, settings.NightBrightness);
+            var panel=new StackPanel { Margin=new Thickness(0,18,0,0) };
+            panel.Children.Add(new TextBlock { Text=monitor.Name, FontWeight=FontWeights.SemiBold });
+            var grid=new Grid { Margin=new Thickness(0,12,0,0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(28) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            System.Windows.Controls.Slider AddSlider(string name, int initial, int column)
+            {
+                var stack=new StackPanel(); Grid.SetColumn(stack,column);
+                var value=new TextBlock { Text=$"{name} · {initial}%", Foreground=WBrushes.LightGray };
+                var slider=new System.Windows.Controls.Slider { Minimum=0,Maximum=100,TickFrequency=1,IsSnapToTickEnabled=true,Value=initial,Margin=new Thickness(0,8,0,0) };
+                System.Windows.Automation.AutomationProperties.SetName(slider, $"{monitor.Name} {name.ToLowerInvariant()} brightness");
+                slider.ValueChanged+=(_,_) => { value.Text=$"{name} · {slider.Value:0}%"; UpdateDraft(true); };
+                stack.Children.Add(value); stack.Children.Add(slider); grid.Children.Add(stack); return slider;
+            }
+            var day=AddSlider("Day",levels.Day,0); var night=AddSlider("Night",levels.Night,2);
+            monitorSliders.Add(monitor.Luid,(day,night));
+            panel.Children.Add(grid); MonitorBrightnessPanel.Children.Add(panel);
+        }
+        if(monitorSliders.Count==0) MonitorBrightnessPanel.Children.Add(new TextBlock { Text="Connect an NVIDIA monitor, then reopen settings.", TextWrapping=TextWrapping.Wrap });
+    }
+    void RefreshMonitorsClick(object sender,RoutedEventArgs e)
+    {
+        try
+        {
+            var draft=Draft(); scheduler.RefreshMonitors();
+            loading=true; BuildMonitorControls(draft); loading=false; UpdateDraft(true);
+        }
+        catch(Exception error) { loading=false; SaveStatus.Text=error.Message; }
+    }
     void TextEdited(object sender,TextChangedEventArgs e)=>UpdateDraft(true);
     void OptionEdited(object sender,RoutedEventArgs e)=>UpdateDraft(true);
     void CoordinateEdited(object sender,TextChangedEventArgs e)
@@ -272,7 +326,11 @@ public partial class MainWindow : Window
         try { if(!scheduler.Config.Enabled || scheduler.IsOverride) scheduler.Resume(); else scheduler.Pause(); }
         catch(Exception ex) { SaveStatus.Text=ex.Message; }
     }
-    void PreviewClick(object sender,RoutedEventArgs e) { scheduler.Preview(NightSlider.Value); SaveStatus.Text="Previewing for 10 seconds. Your saved schedule returns automatically."; }
+    void PreviewClick(object sender,RoutedEventArgs e)
+    {
+        try { scheduler.Preview(Draft()); SaveStatus.Text="Previewing each monitor for 10 seconds. Your saved schedule returns automatically."; }
+        catch(Exception error) { SaveStatus.Text=error.Message; }
+    }
     void RestoreClick(object sender,RoutedEventArgs e) { scheduler.Restore(); SaveStatus.Text="Day brightness restored until the next fade. Resume from Schedule to cancel."; }
     void OpenFolder(object sender,RoutedEventArgs e)=>Process.Start(new ProcessStartInfo(Program.Data) { UseShellExecute=true });
     void Navigate(object sender,RoutedEventArgs e)

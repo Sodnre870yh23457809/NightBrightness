@@ -14,13 +14,18 @@ public partial class QuickPanel : Window
     {
         this.scheduler=scheduler;
         InitializeComponent();
-        debounce.Tick += (_,_) => { debounce.Stop(); if(changedByUser) scheduler.OverrideBrightness(BrightnessSlider.Value); };
+        debounce.Tick += (_,_) => { debounce.Stop(); if(changedByUser) ApplyBrightness(); };
         scheduler.Changed += UpdateState;
     }
     public void ShowNearTray()
     {
         loading=true;
-        BrightnessSlider.Value=scheduler.CurrentBrightness<0 ? scheduler.Config.Target(DateTime.Now) : scheduler.CurrentBrightness;
+        MonitorPicker.Items.Clear();
+        MonitorPicker.Items.Add(new System.Windows.Controls.ComboBoxItem { Content="All monitors", Tag=null });
+        foreach(var monitor in scheduler.Monitors)
+            MonitorPicker.Items.Add(new System.Windows.Controls.ComboBoxItem { Content=monitor.Name, Tag=monitor.Luid });
+        MonitorPicker.SelectedIndex=0;
+        BrightnessSlider.Value=SelectedBrightness();
         loading=false; changedByUser=false;
         Show(); PlaceNearTray(); UpdateState(); Activate();
     }
@@ -30,11 +35,12 @@ public partial class QuickPanel : Window
         if(!changedByUser)
         {
             loading=true;
-            BrightnessSlider.Value=scheduler.CurrentBrightness<0 ? scheduler.Config.Target(DateTime.Now) : scheduler.CurrentBrightness;
+            BrightnessSlider.Value=SelectedBrightness();
             loading=false;
         }
         ValueText.Text=$"{BrightnessSlider.Value:0}%";
-        MonitorsText.Text=$"{scheduler.MonitorCount} monitor{(scheduler.MonitorCount==1 ? "" : "s")}";
+        MonitorsText.Text=SelectedMonitor.HasValue ? "1 monitor" : $"{scheduler.MonitorCount} monitors";
+        if(!SelectedMonitor.HasValue && !changedByUser) ValueText.Text=scheduler.BrightnessSummary;
         HintText.Text=scheduler.IsOverride ? $"Temporary until {scheduler.OverrideUntil:HH:mm}." : "Adjust until the next schedule change.";
     }
     void SliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -44,10 +50,20 @@ public partial class QuickPanel : Window
         ValueText.Text=$"{BrightnessSlider.Value:0}%";
         debounce.Stop(); debounce.Start();
     }
+    uint? SelectedMonitor => (MonitorPicker.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as uint?;
+    double SelectedBrightness() => SelectedMonitor is uint id ? scheduler.BrightnessFor(id)
+        : scheduler.CurrentBrightness<0 ? scheduler.Config.Target(DateTime.Now) : scheduler.CurrentBrightness;
+    void ApplyBrightness() => scheduler.OverrideBrightness(BrightnessSlider.Value, SelectedMonitor);
+    void MonitorSelected(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if(loading || BrightnessSlider==null) return;
+        debounce.Stop(); changedByUser=false;
+        loading=true; BrightnessSlider.Value=SelectedBrightness(); loading=false; UpdateState();
+    }
     void ReturnClick(object sender, RoutedEventArgs e) { debounce.Stop(); scheduler.ReturnToSchedule(); Hide(); }
     void SettingsClick(object sender, RoutedEventArgs e) { debounce.Stop(); Hide(); scheduler.ShowWindow(); }
     void CloseClick(object sender, RoutedEventArgs e) { debounce.Stop(); Hide(); }
-    void PanelDeactivated(object sender, EventArgs e) { if(changedByUser && debounce.IsEnabled) scheduler.OverrideBrightness(BrightnessSlider.Value); debounce.Stop(); Hide(); }
+    void PanelDeactivated(object sender, EventArgs e) { if(changedByUser && debounce.IsEnabled) ApplyBrightness(); debounce.Stop(); Hide(); }
     void PanelLoaded(object sender, RoutedEventArgs e) => PlaceNearTray();
     void PlaceNearTray()
     {

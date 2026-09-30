@@ -15,6 +15,15 @@ to the saved schedule (or the prior brightness when paused).
 
 Preferences includes Windows theme and desktop background switching, plus
 automatic sign-in startup.
+
+Turn on **Different brightness for each monitor** in Schedule to choose separate
+day and night levels for the Left and Right displays. Click **Save changes** to
+apply them. Each monitor follows the same times and fade duration; **Preview night**
+previews both individual levels for ten seconds. Turning the option off returns
+to the shared values and retains your individual settings. Monitor profiles are
+saved by their NVIDIA device identifier, so enumeration order does not swap them.
+New displays use the shared values until configured; use **Refresh monitors**
+after connecting or rearranging displays. The timeline shows each monitor's fade.
 Closing the window hides it to the tray. Launching the app again reopens the
 same window, without starting another scheduler. A per-user Windows logon task
 starts the app without a delay at higher scheduling priority. The usual Windows
@@ -35,7 +44,14 @@ By default, Windows and apps switch to **dark mode at 21:00** and **light mode a
 This also applies the correct theme when the app starts or the PC resumes.
 Apps must follow the Windows theme to reflect this preference; apps with their
 own fixed theme settings may not change, and some may need reopening.
-The app broadcasts the theme change to Windows and running apps.
+The app broadcasts the theme change to Windows and running apps, and explicitly
+refreshes the primary and secondary taskbars and their controls. It repeats the
+taskbar refresh briefly after a switch and checks for recreated taskbars every
+30 seconds, including after Explorer restarts or display reconnections.
+Each actual light/dark theme change also restarts this session's Explorer shell
+so both taskbars use the new theme. The desktop and taskbars briefly disappear;
+open File Explorer windows may close. Startup or saving settings with the same
+theme does not restart Explorer.
 
 It uses NVIDIA's driver gamma correction interface, with NVIDIA Control Panel's
 brightness scale. **0% is NVIDIA's minimum brightness, not a black/off screen.**
@@ -89,6 +105,9 @@ Left-click the tray icon for a small brightness panel. Drag its slider to
 adjust both monitors until the next scheduled transition. **Return to schedule**
 removes the override immediately. **Open settings** opens the full window.
 Right-click the icon for the existing menu, or double-click to open settings.
+The quick panel's monitor selector lets you adjust **All monitors**, **Left**, or
+**Right** temporarily. Selecting one leaves the other monitor on its schedule.
+**Return to schedule** restores each monitor's saved levels.
 ## Controls
 
 Right-click the Night Brightness notification-area icon (possibly under the
@@ -119,13 +138,16 @@ Requires the installed .NET 10 Windows Desktop runtime (SDK for building).
 dotnet build -c Release
 NightBrightness.exe --self-test
 NightBrightness.exe --probe
+NightBrightness.exe --theme-refresh
 ```
 
 `--self-test` checks fixed and solar schedules, wallpaper transitions,
 polar fallback, cross-midnight operation,
 every second of the fade, invalid settings, settings serialization, theme
 boundaries, gamma identity, and the NVIDIA zero mapping. `--probe` only reads monitors and
-color settings. `--wallpaper-probe` only checks the Windows desktop wallpaper
+color settings. `--theme-refresh` refreshes both taskbars using the current Windows
+theme without changing the schedule, brightness, or theme registry values.
+`--wallpaper-probe` only checks the Windows desktop wallpaper
 interface. `--verify-driver` applies 55% to both monitors for a live check.
 
 To uninstall, run `Uninstall.ps1` with PowerShell. It restores 55%, exits the app,

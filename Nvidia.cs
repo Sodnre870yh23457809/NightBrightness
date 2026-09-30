@@ -14,6 +14,7 @@ internal sealed class Nvidia
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int Displays(IntPtr gpu, IntPtr displays, ref uint count, uint flags);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int Luid(uint display, uint mode, [Out] uint[] guid);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int SetGamma(uint display, IntPtr ramp);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int DisplayId([MarshalAs(UnmanagedType.LPStr)] string name, out uint id);
     readonly EnumGpu enumGpu = Get<EnumGpu>(0xE5AC921F);
     readonly Displays displays = Get<Displays>(0x0078DBA2);
     readonly Luid luid = Get<Luid>(0xD4A859F2);
@@ -31,6 +32,9 @@ internal sealed class Nvidia
     public Nvidia() { Check(Get<Init>(0x0150E828)(), "Initialize"); }
     internal record Monitor(uint Id, uint Luid, float[] Color)
     {
+        public string Name { get; init; } = "NVIDIA monitor";
+        public int Left { get; init; } = int.MaxValue;
+        public int Top { get; init; } = int.MaxValue;
         public string Key => $@"Software\NVIDIA Corporation\Global\NVTweak\Devices\{Luid}-0\Color";
     }
     public List<Monitor> Enumerate()
@@ -66,6 +70,26 @@ internal sealed class Nvidia
                 }
             }
             finally { Marshal.FreeHGlobal(buffer); }
+        }
+        // Match Windows display positions to NVAPI IDs, not enumeration order.
+        var mapAddress = nvapi_QueryInterface(0xae457190);
+        if (mapAddress != IntPtr.Zero)
+        {
+            var map = Marshal.GetDelegateForFunctionPointer<DisplayId>(mapAddress);
+            foreach (var screen in Screen.AllScreens)
+                if (map(screen.DeviceName, out uint id) == 0)
+                {
+                    int index = result.FindIndex(m => m.Id == id);
+                    if (index >= 0) result[index] = result[index] with {
+                        Name = $"Display {screen.DeviceName.Replace(@"\\.\DISPLAY", "")}" + (screen.Primary ? " · main" : ""),
+                        Left = screen.Bounds.Left, Top = screen.Bounds.Top };
+                }
+        }
+        result = result.OrderBy(m => m.Left).ThenBy(m => m.Top).ThenBy(m => m.Luid).ToList();
+        if (result.Count == 2 && result[0].Left != result[1].Left)
+        {
+            result[0] = result[0] with { Name = "Left · " + result[0].Name };
+            result[1] = result[1] with { Name = "Right · " + result[1].Name };
         }
         return result;
     }
